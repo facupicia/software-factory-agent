@@ -6,6 +6,16 @@ const EnvSchema = z.object({
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1).optional(),
   NEXT_PUBLIC_SITE_URL: z.url().optional(),
   VERCEL_URL: z.string().optional(),
+
+  OPENCODE_API_KEY: z.string().min(1).optional(),
+  OPENCODE_BASE_URL: z.string().optional(),
+  OPENCODE_DEFAULT_MODEL: z.string().optional(),
+
+  TELEGRAM_BOT_TOKEN: z.string().min(1).optional(),
+  TELEGRAM_WEBHOOK_SECRET: z.string().min(1).optional(),
+  CLAWDIA_CHAT_ID: z.coerce.number().int().optional(),
+
+  DAILY_BUDGET_USD: z.coerce.number().positive().optional(),
 });
 
 export type RawEnv = z.infer<typeof EnvSchema>;
@@ -16,6 +26,16 @@ export interface NormalizedEnv {
   supabaseServiceRoleKey: string | undefined;
   siteUrl: string | undefined;
   vercelUrl: string | undefined;
+
+  opencodeApiKey: string | undefined;
+  opencodeBaseUrl: string | undefined;
+  opencodeDefaultModel: string;
+
+  telegramBotToken: string | undefined;
+  telegramWebhookSecret: string | undefined;
+  clawdiaChatId: number | undefined;
+
+  dailyBudgetUsd: number;
 }
 
 let cached: NormalizedEnv | null = null;
@@ -29,6 +49,16 @@ function load(): NormalizedEnv {
     SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
     NEXT_PUBLIC_SITE_URL: process.env.NEXT_PUBLIC_SITE_URL,
     VERCEL_URL: process.env.VERCEL_URL,
+
+    OPENCODE_API_KEY: process.env.OPENCODE_API_KEY,
+    OPENCODE_BASE_URL: process.env.OPENCODE_BASE_URL,
+    OPENCODE_DEFAULT_MODEL: process.env.OPENCODE_DEFAULT_MODEL,
+
+    TELEGRAM_BOT_TOKEN: process.env.TELEGRAM_BOT_TOKEN,
+    TELEGRAM_WEBHOOK_SECRET: process.env.TELEGRAM_WEBHOOK_SECRET,
+    CLAWDIA_CHAT_ID: process.env.CLAWDIA_CHAT_ID,
+
+    DAILY_BUDGET_USD: process.env.DAILY_BUDGET_USD,
   });
   if (!parsed.success) {
     const issues = parsed.error.issues
@@ -46,6 +76,17 @@ function load(): NormalizedEnv {
     supabaseServiceRoleKey: r.SUPABASE_SERVICE_ROLE_KEY,
     siteUrl: r.NEXT_PUBLIC_SITE_URL,
     vercelUrl: r.VERCEL_URL,
+
+    opencodeApiKey: r.OPENCODE_API_KEY,
+    opencodeBaseUrl: r.OPENCODE_BASE_URL,
+    opencodeDefaultModel:
+      r.OPENCODE_DEFAULT_MODEL ?? 'anthropic/claude-sonnet-4.5',
+
+    telegramBotToken: r.TELEGRAM_BOT_TOKEN,
+    telegramWebhookSecret: r.TELEGRAM_WEBHOOK_SECRET,
+    clawdiaChatId: r.CLAWDIA_CHAT_ID,
+
+    dailyBudgetUsd: r.DAILY_BUDGET_USD ?? 1.0,
   };
   return cached;
 }

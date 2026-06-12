@@ -84,6 +84,8 @@ export const AgentUpdateSchema = z
     name: z.string().trim().min(1).max(80).optional(),
     role: z.string().trim().min(1).max(80).optional(),
     status: AgentStatusSchema.optional(),
+    skills: z.array(z.string().trim().min(1).max(40)).max(50).optional(),
+    notes: z.string().max(10_000).optional(),
   })
   .strict();
 export type AgentUpdateInput = z.infer<typeof AgentUpdateSchema>;

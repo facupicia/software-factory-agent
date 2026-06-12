@@ -1,12 +1,13 @@
 'use client';
 
 import type { Task, Agent } from '@/types';
+import ActiveRunBadge from './ActiveRunBadge';
 
 const priorityConfig: Record<Task['priority'], { color: string; label: string }> = {
-  low: { color: 'bg-gray-600 text-gray-200', label: 'Low' },
-  medium: { color: 'bg-blue-600 text-blue-100', label: 'Med' },
-  high: { color: 'bg-orange-600 text-orange-100', label: 'High' },
-  critical: { color: 'bg-red-600 text-red-100', label: 'Crit' },
+  low: { color: 'bg-gray-600 text-gray-200', label: 'Baja' },
+  medium: { color: 'bg-blue-600 text-blue-100', label: 'Media' },
+  high: { color: 'bg-orange-600 text-orange-100', label: 'Alta' },
+  critical: { color: 'bg-red-600 text-red-100', label: 'Crít' },
 };
 
 const statusIcons: Record<string, string> = {
@@ -29,9 +30,10 @@ function getInitials(name: string): string {
 interface TaskCardProps {
   task: Task;
   agent?: Agent;
+  onClick?: (task: Task) => void;
 }
 
-export default function TaskCard({ task, agent }: TaskCardProps) {
+export default function TaskCard({ task, agent, onClick }: TaskCardProps) {
   const prio = priorityConfig[task.priority] ?? priorityConfig.medium;
   const statusIcon =
     task.status in statusIcons ? statusIcons[task.status] : '📋';
@@ -47,7 +49,7 @@ export default function TaskCard({ task, agent }: TaskCardProps) {
   const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
-      // Hook for future modal/detail view
+      onClick?.(task);
     }
   };
 
@@ -58,8 +60,9 @@ export default function TaskCard({ task, agent }: TaskCardProps) {
       draggable
       onDragStart={handleDragStart}
       onKeyDown={handleKeyDown}
-      aria-label={`${prio.label} priority task: ${task.title}${
-        agent ? `, assigned to ${agent.name}` : ', unassigned'
+      onClick={() => onClick?.(task)}
+      aria-label={`Tarea de prioridad ${prio.label}: ${task.title}${
+        agent ? `, asignada a ${agent.name}` : ', sin asignar'
       }`}
       className="group bg-gray-900 border border-gray-800 rounded-lg p-3 cursor-grab active:cursor-grabbing hover:border-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500/60 transition-colors"
     >
@@ -94,20 +97,22 @@ export default function TaskCard({ task, agent }: TaskCardProps) {
           <div
             className="flex-shrink-0 w-6 h-6 rounded-full bg-gray-700 flex items-center justify-center text-[10px] font-semibold text-gray-300 ring-1 ring-gray-600"
             title={agent.name}
-            aria-label={`Assigned to ${agent.name}`}
+            aria-label={`Asignada a ${agent.name}`}
           >
             {getInitials(agent.name)}
           </div>
         ) : (
           <div
             className="flex-shrink-0 w-6 h-6 rounded-full border border-dashed border-gray-700 flex items-center justify-center text-[10px] text-gray-600"
-            title="Unassigned"
-            aria-label="Unassigned"
+            title="Sin asignar"
+            aria-label="Sin asignar"
           >
             ?
           </div>
         )}
       </div>
+
+      <ActiveRunBadge taskId={task.id} />
     </div>
   );
 }

@@ -41,7 +41,7 @@ export default function ColumnLane({ column, tasks, agents, onDrop }: ColumnLane
 
   return (
     <section
-      aria-label={`${column.title} column with ${tasks.length} tasks`}
+      aria-label={`Columna ${column.title} con ${tasks.length} tareas`}
       onDragOver={handleDragOver}
       onDragEnter={handleDragEnter}
       onDrop={handleDrop}
@@ -55,7 +55,7 @@ export default function ColumnLane({ column, tasks, agents, onDrop }: ColumnLane
         />
         <h2 className="text-sm font-semibold text-gray-300">{column.title}</h2>
         <span
-          aria-label={`${tasks.length} tasks`}
+          aria-label={`${tasks.length} tareas`}
           className="ml-auto text-xs text-gray-600 bg-gray-900 px-2 py-0.5 rounded-full"
         >
           {tasks.length}
@@ -65,7 +65,7 @@ export default function ColumnLane({ column, tasks, agents, onDrop }: ColumnLane
       <div role="list" className="flex-1 p-2 space-y-2 overflow-y-auto">
         {tasks.length === 0 ? (
           <p className="flex items-center justify-center h-24 text-xs text-gray-600 italic">
-            No tasks
+            Sin tareas
           </p>
         ) : (
           tasks.map((task) => (

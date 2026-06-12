@@ -1,9 +1,10 @@
 'use client';
 
-import { useCallback, useOptimistic, useTransition } from 'react';
+import { useCallback, useOptimistic, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import type { Column, Task, Agent } from '@/types';
 import ColumnLane from './ColumnLane';
+import TaskDrawer from './TaskDrawer';
 
 interface KanbanBoardProps {
   columns: Column[];
@@ -30,6 +31,7 @@ export default function KanbanBoard({ columns, tasks, agents }: KanbanBoardProps
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [optimisticTasks, apply] = useOptimistic(tasks, applyOptimistic);
+  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
 
   const handleDrop = useCallback(
     async (taskId: string, toColumnId: string) => {
@@ -50,7 +52,7 @@ export default function KanbanBoard({ columns, tasks, agents }: KanbanBoardProps
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         router.refresh();
       } catch (err) {
-        console.error('Failed to move task:', err);
+        console.error('No se pudo mover la tarea:', err);
         startTransition(() => {
           apply({ type: 'revert', previous });
         });
@@ -65,20 +67,30 @@ export default function KanbanBoard({ columns, tasks, agents }: KanbanBoardProps
     optimisticTasks.filter((t) => t.column_id === columnId);
 
   return (
-    <div
-      aria-busy={isPending}
-      className="flex gap-4 overflow-x-auto pb-4 px-1 min-h-0 flex-1
+    <>
+      <div
+        aria-busy={isPending}
+        className="flex gap-4 overflow-x-auto pb-4 px-1 min-h-0 flex-1
                     flex-col md:flex-row"
-    >
-      {sortedColumns.map((column) => (
-        <ColumnLane
-          key={column.id}
-          column={column}
-          tasks={getTasksForColumn(column.id)}
-          agents={agents}
-          onDrop={handleDrop}
-        />
-      ))}
-    </div>
+      >
+        {sortedColumns.map((column) => (
+          <ColumnLane
+            key={column.id}
+            column={column}
+            tasks={getTasksForColumn(column.id)}
+            agents={agents}
+            onDrop={handleDrop}
+          />
+        ))}
+      </div>
+      <TaskDrawer
+        task={
+          selectedTask
+            ? optimisticTasks.find((t) => t.id === selectedTask.id) ?? selectedTask
+            : null
+        }
+        onClose={() => setSelectedTask(null)}
+      />
+    </>
   );
 }

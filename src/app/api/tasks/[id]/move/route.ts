@@ -3,6 +3,8 @@ import { createServerClient } from '@/lib/supabase';
 import { TaskMoveSchema, UuidSchema } from '@/lib/validation';
 import { zodErrorResponse, internalErrorResponse } from '@/lib/api';
 import { logActivity } from '@/lib/activity';
+import { dispatchAgentForTask } from '@/lib/agents/dispatcher';
+import type { Task } from '@/types';
 
 interface RouteContext {
   params: Promise<{ id: string }>;
@@ -24,10 +26,13 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
     const { data: previous, error: prevError } = await supabase
       .from('tasks')
-      .select('column_id')
+      .select('*')
       .eq('id', id)
       .maybeSingle();
     if (prevError) return internalErrorResponse(prevError.message);
+    if (!previous) {
+      return NextResponse.json({ error: 'Not found' }, { status: 404 });
+    }
 
     const { data, error } = await supabase
       .from('tasks')
@@ -46,12 +51,29 @@ export async function POST(req: NextRequest, context: RouteContext) {
       action: 'moved',
       comment: null,
       metadata: {
-        from: previous?.column_id ?? null,
+        from: previous.column_id,
         to: parsed.data.column_id,
       },
     });
 
-    return NextResponse.json(data);
+    let dispatched: { runId?: string; skipped?: string } = {};
+    if (parsed.data.column_id) {
+      const { data: targetColumn } = await supabase
+        .from('columns')
+        .select('title')
+        .eq('id', parsed.data.column_id)
+        .maybeSingle();
+      if (targetColumn?.title === 'In Progress') {
+        const result = await dispatchAgentForTask({
+          task: data as Task,
+          trigger: 'move',
+        });
+        if (result?.run) dispatched = { runId: result.run.id };
+        else if (result?.skipped) dispatched = { skipped: result.skipped };
+      }
+    }
+
+    return NextResponse.json({ task: data, ...dispatched });
   } catch (err) {
     return internalErrorResponse(err);
   }
