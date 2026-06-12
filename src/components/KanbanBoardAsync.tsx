@@ -1,16 +1,6 @@
-import type { Column, Task, Agent } from '@/types';
 import KanbanBoard from '@/components/KanbanBoard';
-
-async function fetchData<T>(url: string): Promise<T> {
-  // Server component: use absolute URL pointing to the same Vercel deployment
-  const isVercel = process.env.VERCEL_URL || process.env.NEXT_PUBLIC_VERCEL_URL;
-  const base = isVercel
-    ? `https://${isVercel}`
-    : process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000';
-  const res = await fetch(`${base}${url}`, { cache: 'no-store' });
-  if (!res.ok) throw new Error(`Failed to fetch ${url}: ${res.status}`);
-  return res.json();
-}
+import { fetchAgents, fetchColumns, fetchTasks } from '@/lib/data';
+import type { Agent, Column, Task } from '@/types';
 
 export default async function KanbanBoardAsync() {
   let columns: Column[] = [];
@@ -19,9 +9,9 @@ export default async function KanbanBoardAsync() {
 
   try {
     [columns, tasks, agents] = await Promise.all([
-      fetchData<Column[]>('/api/columns'),
-      fetchData<Task[]>('/api/tasks'),
-      fetchData<Agent[]>('/api/agents'),
+      fetchColumns(),
+      fetchTasks(),
+      fetchAgents(),
     ]);
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Failed to load data';

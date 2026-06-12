@@ -20,7 +20,7 @@ const statusIcons: Record<string, string> = {
 function getInitials(name: string): string {
   return name
     .split(' ')
-    .map((n) => n[0])
+    .map((n) => n[0] ?? '')
     .join('')
     .toUpperCase()
     .slice(0, 2);
@@ -33,34 +33,51 @@ interface TaskCardProps {
 
 export default function TaskCard({ task, agent }: TaskCardProps) {
   const prio = priorityConfig[task.priority] ?? priorityConfig.medium;
+  const statusIcon =
+    task.status in statusIcons ? statusIcons[task.status] : '📋';
 
   const handleDragStart = (e: React.DragEvent<HTMLDivElement>) => {
-    e.dataTransfer.setData('text/plain', JSON.stringify({ taskId: task.id, fromColumnId: task.column_id }));
+    e.dataTransfer.setData(
+      'text/plain',
+      JSON.stringify({ taskId: task.id, fromColumnId: task.column_id })
+    );
     e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      // Hook for future modal/detail view
+    }
   };
 
   return (
     <div
+      role="listitem"
+      tabIndex={0}
       draggable
       onDragStart={handleDragStart}
-      className="group bg-gray-900 border border-gray-800 rounded-lg p-3 cursor-grab active:cursor-grabbing hover:border-gray-700 transition-colors"
+      onKeyDown={handleKeyDown}
+      aria-label={`${prio.label} priority task: ${task.title}${
+        agent ? `, assigned to ${agent.name}` : ', unassigned'
+      }`}
+      className="group bg-gray-900 border border-gray-800 rounded-lg p-3 cursor-grab active:cursor-grabbing hover:border-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500/60 transition-colors"
     >
-      {/* Priority + Status row */}
       <div className="flex items-center justify-between mb-2">
-        <span className={`text-[11px] font-semibold px-2 py-0.5 rounded ${prio.color}`}>
+        <span
+          className={`text-[11px] font-semibold px-2 py-0.5 rounded ${prio.color}`}
+        >
           {prio.label}
         </span>
-        <span className="text-xs text-gray-500">
-          {task.status in statusIcons ? statusIcons[task.status] : '📋'}
+        <span aria-hidden="true" className="text-xs text-gray-500">
+          {statusIcon}
         </span>
       </div>
 
-      {/* Title */}
       <p className="text-sm font-medium text-gray-200 leading-snug mb-2">
         {task.title}
       </p>
 
-      {/* Tags + Agent */}
       <div className="flex items-center justify-between gap-2">
         <div className="flex flex-wrap gap-1">
           {task.tags.slice(0, 3).map((tag) => (
@@ -77,12 +94,16 @@ export default function TaskCard({ task, agent }: TaskCardProps) {
           <div
             className="flex-shrink-0 w-6 h-6 rounded-full bg-gray-700 flex items-center justify-center text-[10px] font-semibold text-gray-300 ring-1 ring-gray-600"
             title={agent.name}
+            aria-label={`Assigned to ${agent.name}`}
           >
             {getInitials(agent.name)}
           </div>
         ) : (
-          <div className="flex-shrink-0 w-6 h-6 rounded-full border border-dashed border-gray-700 flex items-center justify-center text-[10px] text-gray-600"
-            title="Unassigned">
+          <div
+            className="flex-shrink-0 w-6 h-6 rounded-full border border-dashed border-gray-700 flex items-center justify-center text-[10px] text-gray-600"
+            title="Unassigned"
+            aria-label="Unassigned"
+          >
             ?
           </div>
         )}

@@ -17,6 +17,10 @@ export default function ColumnLane({ column, tasks, agents, onDrop }: ColumnLane
     e.dataTransfer.dropEffect = 'move';
   }, []);
 
+  const handleDragEnter = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+  }, []);
+
   const handleDrop = useCallback(
     (e: React.DragEvent<HTMLDivElement>) => {
       e.preventDefault();
@@ -36,35 +40,39 @@ export default function ColumnLane({ column, tasks, agents, onDrop }: ColumnLane
     agents.find((a) => a.id === task.assigned_agent_id);
 
   return (
-    <div
+    <section
+      aria-label={`${column.title} column with ${tasks.length} tasks`}
       onDragOver={handleDragOver}
+      onDragEnter={handleDragEnter}
       onDrop={handleDrop}
       className="flex-shrink-0 w-72 flex flex-col bg-gray-950/60 border border-gray-800/70 rounded-xl min-h-[400px]"
     >
-      {/* Column header */}
-      <div className="flex items-center gap-2 px-3 py-3 border-b border-gray-800/60">
+      <header className="flex items-center gap-2 px-3 py-3 border-b border-gray-800/60">
         <span
+          aria-hidden="true"
           className="w-3 h-3 rounded-full flex-shrink-0"
           style={{ backgroundColor: column.color }}
         />
-        <h3 className="text-sm font-semibold text-gray-300">{column.title}</h3>
-        <span className="ml-auto text-xs text-gray-600 bg-gray-900 px-2 py-0.5 rounded-full">
+        <h2 className="text-sm font-semibold text-gray-300">{column.title}</h2>
+        <span
+          aria-label={`${tasks.length} tasks`}
+          className="ml-auto text-xs text-gray-600 bg-gray-900 px-2 py-0.5 rounded-full"
+        >
           {tasks.length}
         </span>
-      </div>
+      </header>
 
-      {/* Tasks list */}
-      <div className="flex-1 p-2 space-y-2 overflow-y-auto">
+      <div role="list" className="flex-1 p-2 space-y-2 overflow-y-auto">
         {tasks.length === 0 ? (
-          <div className="flex items-center justify-center h-24 text-xs text-gray-600 italic">
+          <p className="flex items-center justify-center h-24 text-xs text-gray-600 italic">
             No tasks
-          </div>
+          </p>
         ) : (
           tasks.map((task) => (
             <TaskCard key={task.id} task={task} agent={getAgentForTask(task)} />
           ))
         )}
       </div>
-    </div>
+    </section>
   );
 }

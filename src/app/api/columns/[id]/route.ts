@@ -1,34 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@/lib/supabase';
-import { TaskUpdateSchema, UuidSchema } from '@/lib/validation';
+import { ColumnUpdateSchema, UuidSchema } from '@/lib/validation';
 import { zodErrorResponse, internalErrorResponse } from '@/lib/api';
-import { logActivity } from '@/lib/activity';
 
 interface RouteContext {
   params: Promise<{ id: string }>;
-}
-
-export async function GET(_req: NextRequest, context: RouteContext) {
-  try {
-    const { id } = await context.params;
-    const idCheck = UuidSchema.safeParse(id);
-    if (!idCheck.success) {
-      return NextResponse.json({ error: 'Invalid task id' }, { status: 400 });
-    }
-
-    const supabase = createServerClient();
-    const { data, error } = await supabase
-      .from('tasks')
-      .select('*')
-      .eq('id', id)
-      .maybeSingle();
-
-    if (error) return internalErrorResponse(error.message);
-    if (!data) return NextResponse.json({ error: 'Not found' }, { status: 404 });
-    return NextResponse.json(data);
-  } catch (err) {
-    return internalErrorResponse(err);
-  }
 }
 
 export async function PATCH(req: NextRequest, context: RouteContext) {
@@ -36,31 +12,22 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
     const { id } = await context.params;
     const idCheck = UuidSchema.safeParse(id);
     if (!idCheck.success) {
-      return NextResponse.json({ error: 'Invalid task id' }, { status: 400 });
+      return NextResponse.json({ error: 'Invalid column id' }, { status: 400 });
     }
 
     const json = await req.json().catch(() => null);
-    const parsed = TaskUpdateSchema.safeParse(json);
+    const parsed = ColumnUpdateSchema.safeParse(json);
     if (!parsed.success) return zodErrorResponse(parsed.error);
 
     const supabase = createServerClient();
     const { data, error } = await supabase
-      .from('tasks')
-      .update({ ...parsed.data, updated_at: new Date().toISOString() })
+      .from('columns')
+      .update(parsed.data)
       .eq('id', id)
       .select()
       .single();
-
     if (error) return internalErrorResponse(error.message);
     if (!data) return NextResponse.json({ error: 'Not found' }, { status: 404 });
-
-    await logActivity(supabase, {
-      task_id: id,
-      action: 'updated',
-      comment: null,
-      metadata: { fields: Object.keys(parsed.data) },
-    });
-
     return NextResponse.json(data);
   } catch (err) {
     return internalErrorResponse(err);
@@ -72,11 +39,11 @@ export async function DELETE(_req: NextRequest, context: RouteContext) {
     const { id } = await context.params;
     const idCheck = UuidSchema.safeParse(id);
     if (!idCheck.success) {
-      return NextResponse.json({ error: 'Invalid task id' }, { status: 400 });
+      return NextResponse.json({ error: 'Invalid column id' }, { status: 400 });
     }
 
     const supabase = createServerClient();
-    const { error } = await supabase.from('tasks').delete().eq('id', id);
+    const { error } = await supabase.from('columns').delete().eq('id', id);
     if (error) return internalErrorResponse(error.message);
     return new NextResponse(null, { status: 204 });
   } catch (err) {
