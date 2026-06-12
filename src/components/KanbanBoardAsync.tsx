@@ -2,7 +2,11 @@ import type { Column, Task, Agent } from '@/types';
 import KanbanBoard from '@/components/KanbanBoard';
 
 async function fetchData<T>(url: string): Promise<T> {
-  const base = process.env.NEXT_PUBLIC_BASE_URL ?? 'http://localhost:3000';
+  // Server component: use absolute URL pointing to the same Vercel deployment
+  const isVercel = process.env.VERCEL_URL || process.env.NEXT_PUBLIC_VERCEL_URL;
+  const base = isVercel
+    ? `https://${isVercel}`
+    : process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000';
   const res = await fetch(`${base}${url}`, { cache: 'no-store' });
   if (!res.ok) throw new Error(`Failed to fetch ${url}: ${res.status}`);
   return res.json();
