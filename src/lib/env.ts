@@ -14,6 +14,7 @@ const EnvSchema = z.object({
   TELEGRAM_BOT_TOKEN: z.string().min(1).optional(),
   TELEGRAM_WEBHOOK_SECRET: z.string().min(1).optional(),
   CLAWDIA_CHAT_ID: z.coerce.number().int().optional(),
+  CLAWDIA_THREAD_ID: z.coerce.number().int().optional(),
 
   DAILY_BUDGET_USD: z.coerce.number().positive().optional(),
 });
@@ -34,6 +35,7 @@ export interface NormalizedEnv {
   telegramBotToken: string | undefined;
   telegramWebhookSecret: string | undefined;
   clawdiaChatId: number | undefined;
+  clawdiaThreadId: number | undefined;
 
   dailyBudgetUsd: number;
 }
@@ -57,6 +59,7 @@ function load(): NormalizedEnv {
     TELEGRAM_BOT_TOKEN: process.env.TELEGRAM_BOT_TOKEN,
     TELEGRAM_WEBHOOK_SECRET: process.env.TELEGRAM_WEBHOOK_SECRET,
     CLAWDIA_CHAT_ID: process.env.CLAWDIA_CHAT_ID,
+    CLAWDIA_THREAD_ID: process.env.CLAWDIA_THREAD_ID,
 
     DAILY_BUDGET_USD: process.env.DAILY_BUDGET_USD,
   });
@@ -85,6 +88,7 @@ function load(): NormalizedEnv {
     telegramBotToken: r.TELEGRAM_BOT_TOKEN,
     telegramWebhookSecret: r.TELEGRAM_WEBHOOK_SECRET,
     clawdiaChatId: r.CLAWDIA_CHAT_ID,
+    clawdiaThreadId: r.CLAWDIA_THREAD_ID,
 
     dailyBudgetUsd: r.DAILY_BUDGET_USD ?? 1.0,
   };

@@ -1,16 +1,14 @@
 -- ============================================
 -- Agent Kanban — Supabase Schema & Seed
 -- ============================================
--- Copy and paste into Supabase SQL Editor, or run via:
---   psql "$(supabase db url)" -f src/db/schema.sql
--- Idempotent: safe to re-run multiple times.
--- ============================================
+-- Refleja exactamente las tablas/columnas en Supabase.
+-- Idempotent: usa CREATE TABLE IF NOT EXISTS y ON CONFLICT DO NOTHING.
 
 -- 1. EXTENSIONS
 -- ============================================
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
--- 2. TABLES
+-- 2. TABLES (existing — already in Supabase)
 -- ============================================
 CREATE TABLE IF NOT EXISTS teams (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -24,12 +22,7 @@ CREATE TABLE IF NOT EXISTS agents (
   team_id UUID REFERENCES teams(id) ON DELETE SET NULL,
   name TEXT NOT NULL,
   role TEXT NOT NULL,
-  skills TEXT[] NOT NULL DEFAULT '{}',
-  status TEXT NOT NULL DEFAULT 'idle' CHECK (status IN ('idle', 'busy', 'offline')),
-  notes TEXT NOT NULL DEFAULT '',
-  is_pm BOOLEAN NOT NULL DEFAULT FALSE,
-  telegram_chat_id BIGINT,
-  last_active_at TIMESTAMPTZ,
+  status TEXT DEFAULT 'idle',
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -49,10 +42,9 @@ CREATE TABLE IF NOT EXISTS tasks (
   assigned_agent_id UUID REFERENCES agents(id) ON DELETE SET NULL,
   title TEXT NOT NULL,
   description TEXT,
-  priority TEXT NOT NULL DEFAULT 'medium' CHECK (priority IN ('low', 'medium', 'high', 'critical')),
-  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'in_progress', 'review', 'done', 'blocked')),
-  tags TEXT[] NOT NULL DEFAULT '{}',
-  required_skills TEXT[] NOT NULL DEFAULT '{}',
+  priority TEXT DEFAULT 'medium',
+  status TEXT DEFAULT 'pending',
+  tags TEXT[] DEFAULT '{}',
   github_issue_url TEXT,
   github_pr_url TEXT,
   started_at TIMESTAMPTZ,
@@ -67,67 +59,54 @@ CREATE TABLE IF NOT EXISTS activity_log (
   agent_id UUID REFERENCES agents(id) ON DELETE SET NULL,
   action TEXT NOT NULL,
   comment TEXT,
-  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
-  source TEXT NOT NULL DEFAULT 'ui' CHECK (source IN ('ui', 'telegram', 'board', 'orchestrator')),
-  external_id TEXT,
+  metadata JSONB DEFAULT '{}'::jsonb,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 3. AGENT RUNTIME TABLES
--- ============================================
--- An instance of an agent working on a task. Ephemeral: created when a task
--- enters "In Progress", destroyed when the run completes/fails.
 CREATE TABLE IF NOT EXISTS agent_runs (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   task_id UUID NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
   agent_id UUID REFERENCES agents(id) ON DELETE SET NULL,
   role TEXT NOT NULL,
-  status TEXT NOT NULL DEFAULT 'queued'
-    CHECK (status IN ('queued', 'running', 'completed', 'failed', 'killed', 'paused_budget')),
+  status TEXT NOT NULL DEFAULT 'queued',
   model TEXT,
   started_at TIMESTAMPTZ,
   completed_at TIMESTAMPTZ,
   tokens_input INT NOT NULL DEFAULT 0,
   tokens_output INT NOT NULL DEFAULT 0,
-  estimated_cost_usd NUMERIC(10, 6) NOT NULL DEFAULT 0,
+  estimated_cost_usd NUMERIC(10,6) NOT NULL DEFAULT 0,
   exit_reason TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Streaming log output of an agent run. Inserted incrementally so the board
--- can subscribe via Realtime and render a live feed.
+-- 3. NEW TABLES (not yet in Supabase — create them)
+-- ============================================
 CREATE TABLE IF NOT EXISTS agent_logs (
   id BIGSERIAL PRIMARY KEY,
   run_id UUID NOT NULL REFERENCES agent_runs(id) ON DELETE CASCADE,
-  level TEXT NOT NULL DEFAULT 'info'
-    CHECK (level IN ('info', 'thinking', 'tool_use', 'tool_result', 'result', 'error', 'warn')),
+  level TEXT NOT NULL DEFAULT 'info',
   message TEXT NOT NULL,
-  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  metadata JSONB DEFAULT '{}'::jsonb,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- PM-level config (budget, gates, etc.)
 CREATE TABLE IF NOT EXISTS pm_settings (
   key TEXT PRIMARY KEY,
   value JSONB NOT NULL,
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Bidirectional chat between the PM (you) and Clawdia.
--- scope='global' is the sprint/project chat; scope='task' is per-task.
 CREATE TABLE IF NOT EXISTS clawdia_messages (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  scope TEXT NOT NULL CHECK (scope IN ('global', 'task')),
+  scope TEXT NOT NULL,
   task_id UUID REFERENCES tasks(id) ON DELETE CASCADE,
-  role TEXT NOT NULL CHECK (role IN ('user', 'clawdia', 'system')),
+  role TEXT NOT NULL,
   content TEXT NOT NULL,
-  source TEXT NOT NULL CHECK (source IN ('telegram', 'board', 'orchestrator')),
+  source TEXT NOT NULL,
   tool_calls JSONB,
   external_id BIGINT,
-  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  CONSTRAINT clawdia_messages_task_required
-    CHECK ((scope = 'task' AND task_id IS NOT NULL) OR scope = 'global')
+  metadata JSONB DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- 4. INDEXES
@@ -136,14 +115,13 @@ CREATE INDEX IF NOT EXISTS idx_tasks_column ON tasks(column_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_agent ON tasks(assigned_agent_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_team ON tasks(team_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
-CREATE INDEX IF NOT EXISTS idx_tasks_skills ON tasks USING GIN (required_skills);
-CREATE INDEX IF NOT EXISTS idx_agents_skills ON agents USING GIN (skills);
 
 CREATE INDEX IF NOT EXISTS idx_activity_task ON activity_log(task_id);
 CREATE INDEX IF NOT EXISTS idx_activity_agent ON activity_log(agent_id);
 CREATE INDEX IF NOT EXISTS idx_activity_created_at ON activity_log(created_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_agent_runs_task ON agent_runs(task_id);
+CREATE INDEX IF NOT EXISTS idx_agent_runs_agent ON agent_runs(agent_id);
 CREATE INDEX IF NOT EXISTS idx_agent_runs_status ON agent_runs(status);
 CREATE INDEX IF NOT EXISTS idx_agent_runs_started ON agent_runs(started_at DESC);
 
@@ -157,7 +135,7 @@ CREATE INDEX IF NOT EXISTS idx_clawdia_messages_global
   ON clawdia_messages(created_at DESC)
   WHERE scope = 'global';
 
--- 5. updated_at TRIGGER
+-- 5. updated_at TRIGGER (tasks + pm_settings)
 -- ============================================
 CREATE OR REPLACE FUNCTION set_updated_at() RETURNS TRIGGER AS $$
 BEGIN
@@ -219,12 +197,19 @@ BEGIN
   END IF;
 END $$;
 
-ALTER PUBLICATION supabase_realtime ADD TABLE tasks;
-ALTER PUBLICATION supabase_realtime ADD TABLE activity_log;
-ALTER PUBLICATION supabase_realtime ADD TABLE agents;
-ALTER PUBLICATION supabase_realtime ADD TABLE agent_runs;
-ALTER PUBLICATION supabase_realtime ADD TABLE agent_logs;
-ALTER PUBLICATION supabase_realtime ADD TABLE clawdia_messages;
+DO $$
+DECLARE
+  tbl TEXT;
+BEGIN
+  FOR tbl IN SELECT unnest(ARRAY['tasks','activity_log','agents','agent_runs','agent_logs','clawdia_messages']) LOOP
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_publication_tables
+      WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = tbl
+    ) THEN
+      EXECUTE format('ALTER PUBLICATION supabase_realtime ADD TABLE %I', tbl);
+    END IF;
+  END LOOP;
+END $$;
 
 -- 8. SEED DATA
 -- ============================================
@@ -243,29 +228,15 @@ DECLARE
   nova_id UUID;
   rex_id UUID;
 BEGIN
-  -- Agents (Clawdia is the PM, the rest are specialists)
-  INSERT INTO agents (name, role, status, is_pm, skills, notes) VALUES
-    ('Clawdia', 'pm', 'busy', TRUE,
-     ARRAY['planning', 'prioritization', 'communication', 'telegram'],
-     'You are Clawdia — the PM that represents facup across Telegram and the board. Be concise, decide, do not ask many questions. Always reply in Spanish unless told otherwise.'),
-    ('Kai', 'tech-lead', 'busy', FALSE,
-     ARRAY['architecture', 'code-review', 'typescript', 'postgres', 'system-design'],
-     'Tech lead. Reviews PRs, proposes architecture, breaks down big tasks. Use for complex refactors and design decisions.'),
-    ('Nova', 'frontend-react', 'busy', FALSE,
-     ARRAY['react', 'next', 'typescript', 'tailwind', 'css', 'html', 'accessibility'],
-     'Frontend specialist. Owns everything in src/components and src/app. Comfortable with React 19 features.'),
-    ('Rex', 'backend-node', 'idle', FALSE,
-     ARRAY['node', 'next-api', 'postgres', 'sql', 'supabase', 'auth'],
-     'Backend specialist. Builds API routes, writes SQL migrations, owns src/lib and src/app/api.'),
-    ('Zara', 'qa-playwright', 'idle', FALSE,
-     ARRAY['playwright', 'e2e-testing', 'browser-automation', 'accessibility'],
-     'QA. Writes end-to-end tests with Playwright, runs regression before sign-off.'),
-    ('DocBot', 'docs-writer', 'idle', FALSE,
-     ARRAY['markdown', 'technical-writing', 'api-docs', 'mermaid'],
-     'Docs. Writes READMEs, ADRs, OpenAPI specs. Always references the code, never invents.'),
-    ('Spike', 'research', 'idle', FALSE,
-     ARRAY['web-research', 'analysis', 'summarization', 'competitive-analysis'],
-     'Research. Use for 'should we use X' questions, comparing libraries, market/UX research.')
+  -- Agents (only columns that exist in Supabase)
+  INSERT INTO agents (name, role, status) VALUES
+    ('Clawdia', 'pm', 'busy'),
+    ('Kai', 'tech-lead', 'busy'),
+    ('Nova', 'frontend-react', 'busy'),
+    ('Rex', 'backend-node', 'idle'),
+    ('Zara', 'qa-playwright', 'idle'),
+    ('DocBot', 'docs-writer', 'idle'),
+    ('Spike', 'research', 'idle')
   ON CONFLICT DO NOTHING;
 
   INSERT INTO columns (title, position, color) VALUES
@@ -286,16 +257,17 @@ BEGIN
   SELECT id INTO nova_id FROM agents WHERE name = 'Nova';
   SELECT id INTO rex_id FROM agents WHERE name = 'Rex';
 
+  -- Tasks (using only columns that exist)
   IF NOT EXISTS (SELECT 1 FROM tasks WHERE title = 'Design Supabase schema') THEN
-    INSERT INTO tasks (column_id, assigned_agent_id, title, description, priority, status, tags, required_skills) VALUES
-      (done_col_id, claudia_id, 'Design Supabase schema', 'Create the initial database schema for the kanban board', 'high', 'done', ARRAY['database', 'supabase'], ARRAY['postgres', 'sql']),
-      (done_col_id, nova_id, 'Build Next.js scaffold', 'Initialize Next.js 16 project with TypeScript and Tailwind', 'high', 'done', ARRAY['frontend', 'setup'], ARRAY['next', 'react', 'typescript']),
-      (progress_col_id, nova_id, 'Implement kanban board UI', 'Build draggable kanban components with dark theme', 'high', 'in_progress', ARRAY['frontend', 'react'], ARRAY['react', 'tailwind', 'typescript']),
-      (progress_col_id, rex_id, 'Build REST API routes', 'Create API endpoints for tasks, agents, columns, and activity', 'high', 'in_progress', ARRAY['backend', 'api'], ARRAY['node', 'next-api']),
-      (review_col_id, nova_id, 'Add Supabase realtime subscriptions', 'Replace reload with realtime updates', 'medium', 'review', ARRAY['frontend', 'realtime'], ARRAY['react', 'supabase']),
-      (todo_col_id, NULL, 'Implement task detail modal', 'Clicking a task card opens a modal with full info and activity log', 'medium', 'pending', ARRAY['frontend', 'ui'], ARRAY['react', 'tailwind']),
-      (backlog_col_id, NULL, 'Add agent dashboard panel', 'Sidebar showing agent list with realtime status indicators', 'low', 'pending', ARRAY['frontend', 'monitoring'], ARRAY['react']),
-      (backlog_col_id, NULL, 'CI/CD pipeline setup', 'Configure GitHub Actions and Vercel deploy', 'medium', 'pending', ARRAY['devops', 'deploy'], ARRAY['github-actions', 'vercel']);
+    INSERT INTO tasks (column_id, assigned_agent_id, title, description, priority, status, tags) VALUES
+      (done_col_id, claudia_id, 'Design Supabase schema', 'Create the initial database schema for the kanban board', 'high', 'done', ARRAY['database', 'supabase']),
+      (done_col_id, nova_id, 'Build Next.js scaffold', 'Initialize Next.js 16 project with TypeScript and Tailwind', 'high', 'done', ARRAY['frontend', 'setup']),
+      (progress_col_id, nova_id, 'Implement kanban board UI', 'Build draggable kanban components with dark theme', 'high', 'in_progress', ARRAY['frontend', 'react']),
+      (progress_col_id, rex_id, 'Build REST API routes', 'Create API endpoints for tasks, agents, columns, and activity', 'high', 'in_progress', ARRAY['backend', 'api']),
+      (review_col_id, nova_id, 'Add Supabase realtime subscriptions', 'Replace reload with realtime updates', 'medium', 'review', ARRAY['frontend', 'realtime']),
+      (todo_col_id, NULL, 'Implement task detail modal', 'Clicking a task card opens a modal with full info and activity log', 'medium', 'pending', ARRAY['frontend', 'ui']),
+      (backlog_col_id, NULL, 'Add agent dashboard panel', 'Sidebar showing agent list with realtime status indicators', 'low', 'pending', ARRAY['frontend', 'monitoring']),
+      (backlog_col_id, NULL, 'CI/CD pipeline setup', 'Configure GitHub Actions and Vercel deploy', 'medium', 'pending', ARRAY['devops', 'deploy']);
   END IF;
 
   -- Default PM settings

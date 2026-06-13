@@ -52,6 +52,7 @@ export async function sendToTelegram(
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         chat_id: env.clawdiaChatId,
+        message_thread_id: env.clawdiaThreadId,
         text: body,
         disable_web_page_preview: true,
       }),
