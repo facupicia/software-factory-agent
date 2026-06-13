@@ -16,7 +16,7 @@ const PostSchema = z
     scope: z.enum(['global', 'task']).default('global'),
     task_id: z.string().uuid().nullable().optional(),
     content: z.string().min(1).max(4000),
-    forward_to_telegram: z.boolean().default(true),
+    forward_to_telegram: z.boolean().default(false),
   })
   .refine(
     (d) => d.scope === 'global' || Boolean(d.task_id),
