@@ -39,11 +39,11 @@ export async function sendToTelegram(
 
   // Telegram's HTML parser is strict; we don't know what the user typed, so
   // we send as plain text. This avoids 400s from stray '<', '&', etc.
-  const prefix =
+  const scopeLabel =
     opts.scope === 'task'
-      ? `[task: ${opts.taskTitle ?? opts.taskId ?? '?'}]\n`
-      : '';
-  const body = `${prefix}${text}`;
+      ? `📋 [task: ${opts.taskTitle ?? opts.taskId ?? '?'}]`
+      : '🖥 Board';
+  const body = `💬 ${scopeLabel}\n${text}`;
 
   let res: Response;
   try {
