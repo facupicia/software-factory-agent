@@ -9,6 +9,7 @@ import type {
   Column,
   PmSetting,
   Task,
+  Team,
 } from '@/types';
 
 let cachedServerClient: ReturnType<typeof createClient> | null = null;
@@ -22,20 +23,37 @@ function getServerClient() {
   return cachedServerClient;
 }
 
-export async function fetchColumns(): Promise<Column[]> {
+export async function fetchTeams(): Promise<Team[]> {
   const { data, error } = await getServerClient()
+    .from('teams')
+    .select('*')
+    .order('name', { ascending: true });
+  if (error) throw new Error(`fetchTeams: ${error.message}`);
+  return (data ?? []) as Team[];
+}
+
+export async function fetchColumns(teamId?: string): Promise<Column[]> {
+  let query = getServerClient()
     .from('columns')
     .select('*')
     .order('position', { ascending: true });
+
+  if (teamId) query = query.eq('team_id', teamId);
+
+  const { data, error } = await query;
   if (error) throw new Error(`fetchColumns: ${error.message}`);
   return (data ?? []) as Column[];
 }
 
-export async function fetchTasks(): Promise<Task[]> {
-  const { data, error } = await getServerClient()
+export async function fetchTasks(teamId?: string): Promise<Task[]> {
+  let query = getServerClient()
     .from('tasks')
     .select('*')
     .order('created_at', { ascending: false });
+
+  if (teamId) query = query.eq('team_id', teamId);
+
+  const { data, error } = await query;
   if (error) throw new Error(`fetchTasks: ${error.message}`);
   return (data ?? []) as Task[];
 }

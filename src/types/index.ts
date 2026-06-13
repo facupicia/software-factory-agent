@@ -1,14 +1,16 @@
+export interface Team {
+  id: string;
+  name: string;
+  description: string | null;
+  created_at: string;
+}
+
 export interface Agent {
   id: string;
   team_id: string | null;
   name: string;
   role: string;
-  skills: string[];
   status: 'idle' | 'busy' | 'offline';
-  notes: string;
-  is_pm: boolean;
-  telegram_chat_id: number | null;
-  last_active_at: string | null;
   created_at: string;
 }
 
@@ -24,7 +26,6 @@ export interface Task {
   priority: 'low' | 'medium' | 'high' | 'critical';
   status: 'pending' | 'in_progress' | 'review' | 'done' | 'blocked';
   tags: string[];
-  required_skills: string[];
   github_issue_url: string | null;
   github_pr_url: string | null;
   started_at: string | null;
@@ -42,8 +43,6 @@ export interface Column {
   created_at: string;
 }
 
-export type ActivitySource = 'ui' | 'telegram' | 'board' | 'orchestrator';
-
 export interface ActivityLog {
   id: string;
   task_id: string;
@@ -51,8 +50,6 @@ export interface ActivityLog {
   action: string;
   comment: string | null;
   metadata: Record<string, unknown>;
-  source: ActivitySource;
-  external_id: string | null;
   created_at: string;
 }
 

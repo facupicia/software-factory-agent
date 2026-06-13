@@ -1,14 +1,14 @@
 -- ============================================
--- Agent Kanban — Supabase Schema & Seed
+-- Agent Kanban — Supabase Schema & Seed v2
 -- ============================================
--- Refleja exactamente las tablas/columnas en Supabase.
--- Idempotent: usa CREATE TABLE IF NOT EXISTS y ON CONFLICT DO NOTHING.
+-- Multi-project support. All tables scoped to teams.
+-- Idempotent: safe to re-run.
 
 -- 1. EXTENSIONS
 -- ============================================
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
--- 2. TABLES (existing — already in Supabase)
+-- 2. TABLES
 -- ============================================
 CREATE TABLE IF NOT EXISTS teams (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -16,6 +16,9 @@ CREATE TABLE IF NOT EXISTS teams (
   description TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- UNIQUE on team name to prevent accidental duplicates
+ALTER TABLE teams ADD CONSTRAINT IF NOT EXISTS teams_name_unique UNIQUE (name);
 
 CREATE TABLE IF NOT EXISTS agents (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -28,12 +31,16 @@ CREATE TABLE IF NOT EXISTS agents (
 
 CREATE TABLE IF NOT EXISTS columns (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  team_id UUID REFERENCES teams(id) ON DELETE SET NULL,
+  team_id UUID REFERENCES teams(id) ON DELETE CASCADE,
   title TEXT NOT NULL,
   position INTEGER NOT NULL DEFAULT 0,
   color TEXT DEFAULT '#6b7280',
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- One set of columns per team (no duplicate column names within a team)
+ALTER TABLE columns ADD CONSTRAINT IF NOT EXISTS columns_title_team_unique
+  UNIQUE NULLS NOT DISTINCT (title, team_id);
 
 CREATE TABLE IF NOT EXISTS tasks (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -52,6 +59,10 @@ CREATE TABLE IF NOT EXISTS tasks (
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- No duplicate task titles within the same team
+ALTER TABLE tasks ADD CONSTRAINT IF NOT EXISTS tasks_title_team_unique
+  UNIQUE NULLS NOT DISTINCT (title, team_id);
 
 CREATE TABLE IF NOT EXISTS activity_log (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -79,8 +90,6 @@ CREATE TABLE IF NOT EXISTS agent_runs (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 3. NEW TABLES (not yet in Supabase — create them)
--- ============================================
 CREATE TABLE IF NOT EXISTS agent_logs (
   id BIGSERIAL PRIMARY KEY,
   run_id UUID NOT NULL REFERENCES agent_runs(id) ON DELETE CASCADE,
@@ -109,7 +118,7 @@ CREATE TABLE IF NOT EXISTS clawdia_messages (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 4. INDEXES
+-- 3. INDEXES
 -- ============================================
 CREATE INDEX IF NOT EXISTS idx_tasks_column ON tasks(column_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_agent ON tasks(assigned_agent_id);
@@ -135,7 +144,7 @@ CREATE INDEX IF NOT EXISTS idx_clawdia_messages_global
   ON clawdia_messages(created_at DESC)
   WHERE scope = 'global';
 
--- 5. updated_at TRIGGER (tasks + pm_settings)
+-- 4. updated_at TRIGGER
 -- ============================================
 CREATE OR REPLACE FUNCTION set_updated_at() RETURNS TRIGGER AS $$
 BEGIN
@@ -154,7 +163,7 @@ CREATE TRIGGER trg_pm_settings_updated_at
   BEFORE UPDATE ON pm_settings
   FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
--- 6. RLS
+-- 5. RLS
 -- ============================================
 ALTER TABLE teams ENABLE ROW LEVEL SECURITY;
 ALTER TABLE agents ENABLE ROW LEVEL SECURITY;
@@ -186,7 +195,7 @@ CREATE POLICY "Allow all agent_logs" ON agent_logs FOR ALL USING (true) WITH CHE
 CREATE POLICY "Allow all pm_settings" ON pm_settings FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow all clawdia_messages" ON clawdia_messages FOR ALL USING (true) WITH CHECK (true);
 
--- 7. REALTIME
+-- 6. REALTIME
 -- ============================================
 DO $$
 BEGIN
@@ -211,14 +220,11 @@ BEGIN
   END LOOP;
 END $$;
 
--- 8. SEED DATA
+-- 7. SEED — Only runs if Core Team doesn't exist
 -- ============================================
-INSERT INTO teams (name, description)
-  SELECT 'Core Team', 'Agent Kanban primary development team'
-  WHERE NOT EXISTS (SELECT 1 FROM teams WHERE name = 'Core Team');
-
 DO $$
 DECLARE
+  core_team_id UUID;
   done_col_id UUID;
   progress_col_id UUID;
   todo_col_id UUID;
@@ -228,7 +234,23 @@ DECLARE
   nova_id UUID;
   rex_id UUID;
 BEGIN
-  -- Agents (only columns that exist in Supabase)
+  -- Create default team if not exists
+  IF NOT EXISTS (SELECT 1 FROM teams WHERE name = 'Core Team') THEN
+    INSERT INTO teams (name, description) VALUES ('Core Team', 'Agent Kanban primary development team')
+      RETURNING id INTO core_team_id;
+
+    -- Default columns for this team
+    INSERT INTO columns (team_id, title, position, color) VALUES
+      (core_team_id, 'Backlog', 0, '#6b7280'),
+      (core_team_id, 'To Do', 1, '#3b82f6'),
+      (core_team_id, 'In Progress', 2, '#f59e0b'),
+      (core_team_id, 'Review', 3, '#8b5cf6'),
+      (core_team_id, 'Done', 4, '#10b981');
+  ELSE
+    SELECT id INTO core_team_id FROM teams WHERE name = 'Core Team';
+  END IF;
+
+  -- Agents (global, not team-scoped for now)
   INSERT INTO agents (name, role, status) VALUES
     ('Clawdia', 'pm', 'busy'),
     ('Kai', 'tech-lead', 'busy'),
@@ -239,35 +261,28 @@ BEGIN
     ('Spike', 'research', 'idle')
   ON CONFLICT DO NOTHING;
 
-  INSERT INTO columns (title, position, color) VALUES
-    ('Backlog', 0, '#6b7280'),
-    ('To Do', 1, '#3b82f6'),
-    ('In Progress', 2, '#f59e0b'),
-    ('Review', 3, '#8b5cf6'),
-    ('Done', 4, '#10b981')
-  ON CONFLICT DO NOTHING;
-
-  SELECT id INTO done_col_id FROM columns WHERE title = 'Done';
-  SELECT id INTO progress_col_id FROM columns WHERE title = 'In Progress';
-  SELECT id INTO todo_col_id FROM columns WHERE title = 'To Do';
-  SELECT id INTO backlog_col_id FROM columns WHERE title = 'Backlog';
-  SELECT id INTO review_col_id FROM columns WHERE title = 'Review';
+  -- Resolve column IDs for Core Team
+  SELECT id INTO done_col_id FROM columns WHERE title = 'Done' AND team_id = core_team_id;
+  SELECT id INTO progress_col_id FROM columns WHERE title = 'In Progress' AND team_id = core_team_id;
+  SELECT id INTO todo_col_id FROM columns WHERE title = 'To Do' AND team_id = core_team_id;
+  SELECT id INTO backlog_col_id FROM columns WHERE title = 'Backlog' AND team_id = core_team_id;
+  SELECT id INTO review_col_id FROM columns WHERE title = 'Review' AND team_id = core_team_id;
 
   SELECT id INTO claudia_id FROM agents WHERE name = 'Clawdia';
   SELECT id INTO nova_id FROM agents WHERE name = 'Nova';
   SELECT id INTO rex_id FROM agents WHERE name = 'Rex';
 
-  -- Tasks (using only columns that exist)
-  IF NOT EXISTS (SELECT 1 FROM tasks WHERE title = 'Design Supabase schema') THEN
-    INSERT INTO tasks (column_id, assigned_agent_id, title, description, priority, status, tags) VALUES
-      (done_col_id, claudia_id, 'Design Supabase schema', 'Create the initial database schema for the kanban board', 'high', 'done', ARRAY['database', 'supabase']),
-      (done_col_id, nova_id, 'Build Next.js scaffold', 'Initialize Next.js 16 project with TypeScript and Tailwind', 'high', 'done', ARRAY['frontend', 'setup']),
-      (progress_col_id, nova_id, 'Implement kanban board UI', 'Build draggable kanban components with dark theme', 'high', 'in_progress', ARRAY['frontend', 'react']),
-      (progress_col_id, rex_id, 'Build REST API routes', 'Create API endpoints for tasks, agents, columns, and activity', 'high', 'in_progress', ARRAY['backend', 'api']),
-      (review_col_id, nova_id, 'Add Supabase realtime subscriptions', 'Replace reload with realtime updates', 'medium', 'review', ARRAY['frontend', 'realtime']),
-      (todo_col_id, NULL, 'Implement task detail modal', 'Clicking a task card opens a modal with full info and activity log', 'medium', 'pending', ARRAY['frontend', 'ui']),
-      (backlog_col_id, NULL, 'Add agent dashboard panel', 'Sidebar showing agent list with realtime status indicators', 'low', 'pending', ARRAY['frontend', 'monitoring']),
-      (backlog_col_id, NULL, 'CI/CD pipeline setup', 'Configure GitHub Actions and Vercel deploy', 'medium', 'pending', ARRAY['devops', 'deploy']);
+  -- Seed tasks only if none exist for Core Team
+  IF NOT EXISTS (SELECT 1 FROM tasks WHERE team_id = core_team_id) THEN
+    INSERT INTO tasks (team_id, column_id, assigned_agent_id, title, description, priority, status, tags) VALUES
+      (core_team_id, done_col_id, claudia_id, 'Design Supabase schema', 'Create the initial database schema for the kanban board', 'high', 'done', ARRAY['database', 'supabase']),
+      (core_team_id, done_col_id, nova_id, 'Build Next.js scaffold', 'Initialize Next.js 16 project with TypeScript and Tailwind', 'high', 'done', ARRAY['frontend', 'setup']),
+      (core_team_id, progress_col_id, nova_id, 'Implement kanban board UI', 'Build draggable kanban components with dark theme', 'high', 'in_progress', ARRAY['frontend', 'react']),
+      (core_team_id, progress_col_id, rex_id, 'Build REST API routes', 'Create API endpoints for tasks, agents, columns, and activity', 'high', 'in_progress', ARRAY['backend', 'api']),
+      (core_team_id, review_col_id, nova_id, 'Add Supabase realtime subscriptions', 'Replace reload with realtime updates', 'medium', 'review', ARRAY['frontend', 'realtime']),
+      (core_team_id, todo_col_id, NULL, 'Implement task detail modal', 'Clicking a task card opens a modal with full info and activity log', 'medium', 'pending', ARRAY['frontend', 'ui']),
+      (core_team_id, backlog_col_id, NULL, 'Add agent dashboard panel', 'Sidebar showing agent list with realtime status indicators', 'low', 'pending', ARRAY['frontend', 'monitoring']),
+      (core_team_id, backlog_col_id, NULL, 'CI/CD pipeline setup', 'Configure GitHub Actions and Vercel deploy', 'medium', 'pending', ARRAY['devops', 'deploy']);
   END IF;
 
   -- Default PM settings
